@@ -3,6 +3,7 @@ import { useLanguage } from '../context/LanguageContext';
 import { api } from '../services/api';
 import Navbar from '../components/Navbar';
 import CustomerLedgerModal from '../components/CustomerLedgerModal';
+import CorrectAmountModal from '../components/CorrectAmountModal';
 import Toast from '../components/Toast';
 import { formatCurrencyMinor, formatDate } from '../utils/formatters';
 import html2pdf from 'html2pdf.js';
@@ -27,7 +28,8 @@ import {
   AlertCircle,
   Printer,
   Download,
-  X
+  X,
+  Scale
 } from 'lucide-react';
 
 export default function CallQueuePage({
@@ -70,6 +72,9 @@ export default function CallQueuePage({
 
   // Ledger modal
   const [selectedLedgerCustomer, setSelectedLedgerCustomer] = useState(null);
+
+  // Correct Amount modal
+  const [correctingCustomer, setCorrectingCustomer] = useState(null);
 
   // PDF Preview & Download modal state
   const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
@@ -257,6 +262,46 @@ export default function CallQueuePage({
       }
     } catch (err) {
       console.error('Failed to load ledger:', err);
+    }
+  };
+
+  // Handle Correct Due Amount for a customer
+  const handleCorrectBalance = async (data) => {
+    if (!correctingCustomer) return;
+    const custId = correctingCustomer.id || correctingCustomer._id;
+    const res = await api.correctCustomerBalance(correctingCustomer.phoneNormalized, {
+      newAmount: data.newAmount,
+      newAmountMinor: data.newAmountMinor,
+      date: data.date,
+      notes: data.notes
+    });
+
+    if (res.accountStatus === 'deleted') {
+      setCustomers((prev) => prev.filter((cust) => (cust.id || cust._id) !== custId));
+      setToast({
+        type: 'warning',
+        title: t('notifications.success'),
+        message: language === 'hi' ? res.messageHi : res.messageEn || t('notifications.balanceCorrectedZeroDeleted')
+      });
+    } else {
+      const newBalMinor = data.newAmountMinor;
+      setCustomers((prev) =>
+        prev.map((cust) =>
+          (cust.id || cust._id) === custId || cust.phoneNormalized === correctingCustomer.phoneNormalized
+            ? {
+                ...cust,
+                currentBalanceMinor: newBalMinor,
+                balanceFormattedEn: res.data?.customer?.balanceFormattedEn || formatCurrencyMinor(newBalMinor, 'en'),
+                balanceFormattedHi: res.data?.customer?.balanceFormattedHi || formatCurrencyMinor(newBalMinor, 'hi')
+              }
+            : cust
+        )
+      );
+      setToast({
+        type: 'success',
+        title: t('notifications.success'),
+        message: language === 'hi' ? res.messageHi : res.messageEn || t('notifications.balanceCorrected', { amount: res.data?.customer?.balanceFormattedEn })
+      });
     }
   };
 
@@ -655,6 +700,17 @@ export default function CallQueuePage({
                       <BookOpen className="w-4 h-4 text-slate-500" />
                       <span className="hidden sm:inline">{t('calls.viewHistory')}</span>
                     </button>
+
+                    {/* Correct Due Amount Button */}
+                    <button
+                      type="button"
+                      onClick={() => setCorrectingCustomer(c)}
+                      className="p-2.5 rounded-xl transition-colors text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 shrink-0 cursor-pointer"
+                      title={t('customers.correctDueTooltip')}
+                      aria-label={t('customers.correctDueTooltip')}
+                    >
+                      <Scale className="w-4 h-4" />
+                    </button>
                   </div>
                 </div>
               );
@@ -723,6 +779,14 @@ export default function CallQueuePage({
         customerData={selectedLedgerCustomer}
         onAddCredit={() => {}}
         onAddDebit={() => {}}
+      />
+
+      {/* Correct / Update Due Amount Modal */}
+      <CorrectAmountModal
+        isOpen={Boolean(correctingCustomer)}
+        onClose={() => setCorrectingCustomer(null)}
+        onSubmit={handleCorrectBalance}
+        customer={correctingCustomer}
       />
 
       {/* Toast Alert */}

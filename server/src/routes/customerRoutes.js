@@ -10,7 +10,7 @@ const {
   addToCallList,
   setCallQueueDay
 } = require('../controllers/customerController');
-const { addTransaction } = require('../controllers/transactionController');
+const { addTransaction, correctCustomerBalance } = require('../controllers/transactionController');
 const { requireAdminAuth } = require('../middleware/authMiddleware');
 const { transactionLimiter } = require('../middleware/rateLimiter');
 
@@ -31,6 +31,7 @@ router.post('/:phone/add-to-call-list', addToCallList);
 
 // Account transactions
 router.post('/:phone/transactions', transactionLimiter, addTransaction);
+router.post('/:phone/correct-balance', transactionLimiter, correctCustomerBalance);
 
 module.exports = router;
 

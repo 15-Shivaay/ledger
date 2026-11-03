@@ -318,6 +318,295 @@ async function addTransaction(req, res, next) {
   }
 }
 
+/**
+ * POST /api/customers/:phone/correct-balance
+ * Correct or update the outstanding due amount for a customer
+ * (e.g. reconciling calculation differences with customer notebook).
+ * Automatically calculates difference, logs an audit transaction, and updates balance.
+ */
+async function correctCustomerBalance(req, res, next) {
+  try {
+    const rawPhone = decodeURIComponent(req.params.phone);
+    const phoneValidation = normalizePhone(rawPhone);
+    const lookupPhone = phoneValidation.isValid ? phoneValidation.normalized : rawPhone;
+
+    const customer = await Customer.findOne({
+      $or: [{ phoneNormalized: lookupPhone }, { phoneNormalized: rawPhone }]
+    });
+
+    if (!customer) {
+      const msg = getBilingualMessage('CUSTOMER_NOT_FOUND');
+      return res.status(404).json({
+        success: false,
+        error: 'Not Found',
+        code: msg.code,
+        messageEn: msg.messageEn,
+        messageHi: msg.messageHi
+      });
+    }
+
+    if (customer.isArchived) {
+      return res.status(400).json({
+        success: false,
+        error: 'Bad Request',
+        code: 'ACCOUNT_ARCHIVED',
+        messageEn: 'Cannot correct balance of an archived customer account.',
+        messageHi: 'संग्रहीत (आर्काइव) ग्राहक खाते की बकाया राशि नहीं बदली जा सकती।'
+      });
+    }
+
+    const { newAmount, newAmountMinor: rawNewMinor, notes = '', date } = req.body;
+
+    let targetMinor;
+    if (rawNewMinor !== undefined && rawNewMinor !== null) {
+      targetMinor = parseInt(rawNewMinor, 10);
+    } else if (newAmount !== undefined && newAmount !== null && newAmount !== '') {
+      targetMinor = toMinorUnits(newAmount);
+    } else {
+      targetMinor = NaN;
+    }
+
+    if (isNaN(targetMinor) || targetMinor < 0) {
+      return res.status(400).json({
+        success: false,
+        error: 'Validation Error',
+        messageEn: 'Valid target due amount (zero or greater) is required.',
+        messageHi: 'वैध नई बकाया राशि (शून्य या अधिक) आवश्यक है।'
+      });
+    }
+
+    const currentBalanceMinor = customer.currentBalanceMinor || 0;
+    const diffMinor = targetMinor - currentBalanceMinor;
+    const currency = await Setting.getSetting('currency', 'INR');
+    const createdBy = req.auth?.userId || req.adminUser?.userId || 'admin';
+
+    // If no change in balance
+    if (diffMinor === 0) {
+      return res.status(200).json({
+        success: true,
+        noChange: true,
+        accountStatus: 'active',
+        messageEn: 'Balance is already equal to the target amount. No adjustment needed.',
+        messageHi: 'बकाया राशि पहले से ही लक्षित राशि के बराबर है। कोई बदलाव आवश्यक नहीं है।',
+        data: {
+          customer: {
+            ...customer.toObject(),
+            id: customer._id.toString(),
+            balanceFormattedEn: formatCurrency(currentBalanceMinor, 'en-IN', currency),
+            balanceFormattedHi: formatCurrency(currentBalanceMinor, 'hi-IN', currency)
+          }
+        }
+      });
+    }
+
+    // Determine adjustment transaction type:
+    // If targetMinor > currentBalanceMinor: diff > 0 -> credit adjustment
+    // If targetMinor < currentBalanceMinor: diff < 0 -> debit adjustment
+    const txType = diffMinor > 0 ? 'credit' : 'debit';
+    const txAmountMinor = Math.abs(diffMinor);
+
+    let businessDate = new Date();
+    if (date) {
+      const parsedDate = new Date(date);
+      if (!isNaN(parsedDate.getTime())) {
+        businessDate = parsedDate;
+      }
+    }
+
+    const defaultNote = `Due amount correction: ${formatCurrency(currentBalanceMinor, 'en-IN', currency)} → ${formatCurrency(targetMinor, 'en-IN', currency)}${notes && notes.trim() ? ` (${notes.trim()})` : ''}`;
+
+    const zeroBalanceAction = await Setting.getSetting('zeroBalanceAction', 'delete');
+    const reachesZero = targetMinor === 0;
+
+    // Topology check for transactions
+    const topologyType = mongoose.connection.client?.topology?.description?.type;
+    const supportsReplicaSetTransactions =
+      topologyType === 'ReplicaSetWithPrimary' || topologyType === 'Sharded';
+
+    let session = null;
+    let useTransaction = false;
+
+    if (supportsReplicaSetTransactions) {
+      try {
+        session = await mongoose.startSession();
+        session.startTransaction();
+        useTransaction = true;
+      } catch (err) {
+        if (session) {
+          await session.endSession().catch(() => {});
+          session = null;
+        }
+        useTransaction = false;
+      }
+    }
+
+    try {
+      if (reachesZero && zeroBalanceAction === 'delete') {
+        if (useTransaction && session) {
+          await Transaction.deleteMany({ customerId: customer._id }, { session });
+          await Customer.deleteOne({ _id: customer._id }, { session });
+          await session.commitTransaction();
+        } else {
+          await Transaction.deleteMany({ customerId: customer._id });
+          await Customer.deleteOne({ _id: customer._id });
+        }
+
+        return res.status(200).json({
+          success: true,
+          accountStatus: 'deleted',
+          deleted: true,
+          messageEn: 'Balance corrected to zero. Account deleted per system policy.',
+          messageHi: 'बकाया राशि शून्य पर सुधारी गई। खाता हटा दिया गया।',
+          data: {
+            customerId: customer._id.toString(),
+            phoneNormalized: customer.phoneNormalized,
+            name: customer.name,
+            finalBalanceMinor: 0
+          }
+        });
+      } else if (reachesZero && zeroBalanceAction === 'archive') {
+        let savedTx;
+        if (useTransaction && session) {
+          const txDocs = await Transaction.create(
+            [
+              {
+                customerId: customer._id,
+                type: txType,
+                amountMinor: txAmountMinor,
+                date: businessDate,
+                notes: defaultNote,
+                balanceAfterMinor: 0,
+                createdBy
+              }
+            ],
+            { session }
+          );
+          savedTx = txDocs[0];
+
+          customer.currentBalanceMinor = 0;
+          customer.isArchived = true;
+          customer.archivedAt = new Date();
+          customer.lastActivityAt = businessDate;
+          await customer.save({ session });
+          await session.commitTransaction();
+        } else {
+          savedTx = await Transaction.create({
+            customerId: customer._id,
+            type: txType,
+            amountMinor: txAmountMinor,
+            date: businessDate,
+            notes: defaultNote,
+            balanceAfterMinor: 0,
+            createdBy
+          });
+
+          customer.currentBalanceMinor = 0;
+          customer.isArchived = true;
+          customer.archivedAt = new Date();
+          customer.lastActivityAt = businessDate;
+          await customer.save();
+        }
+
+        return res.status(200).json({
+          success: true,
+          accountStatus: 'archived',
+          archived: true,
+          messageEn: 'Balance corrected to zero. Account archived per system policy.',
+          messageHi: 'बकाया राशि शून्य पर सुधारी गई। खाता संग्रहीत किया गया।',
+          data: {
+            customer: {
+              ...customer.toObject(),
+              id: customer._id.toString(),
+              balanceFormattedEn: formatCurrency(0, 'en-IN', currency),
+              balanceFormattedHi: formatCurrency(0, 'hi-IN', currency)
+            },
+            transaction: {
+              ...savedTx.toObject(),
+              id: savedTx._id.toString(),
+              amountFormattedEn: formatCurrency(savedTx.amountMinor, 'en-IN', currency),
+              amountFormattedHi: formatCurrency(savedTx.amountMinor, 'hi-IN', currency)
+            }
+          }
+        });
+      } else {
+        // Normal balance correction (targetMinor > 0)
+        let savedTx;
+        if (useTransaction && session) {
+          const txDocs = await Transaction.create(
+            [
+              {
+                customerId: customer._id,
+                type: txType,
+                amountMinor: txAmountMinor,
+                date: businessDate,
+                notes: defaultNote,
+                balanceAfterMinor: targetMinor,
+                createdBy
+              }
+            ],
+            { session }
+          );
+          savedTx = txDocs[0];
+
+          customer.currentBalanceMinor = targetMinor;
+          customer.lastActivityAt = businessDate;
+          await customer.save({ session });
+          await session.commitTransaction();
+        } else {
+          savedTx = await Transaction.create({
+            customerId: customer._id,
+            type: txType,
+            amountMinor: txAmountMinor,
+            date: businessDate,
+            notes: defaultNote,
+            balanceAfterMinor: targetMinor,
+            createdBy
+          });
+
+          customer.currentBalanceMinor = targetMinor;
+          customer.lastActivityAt = businessDate;
+          await customer.save();
+        }
+
+        return res.status(200).json({
+          success: true,
+          accountStatus: 'active',
+          messageEn: `Due amount corrected to ${formatCurrency(targetMinor, 'en-IN', currency)} successfully.`,
+          messageHi: `बकाया राशि सफलतापूर्वक सुधारकर ${formatCurrency(targetMinor, 'hi-IN', currency)} कर दी गई।`,
+          data: {
+            customer: {
+              ...customer.toObject(),
+              id: customer._id.toString(),
+              balanceFormattedEn: formatCurrency(targetMinor, 'en-IN', currency),
+              balanceFormattedHi: formatCurrency(targetMinor, 'hi-IN', currency)
+            },
+            transaction: {
+              ...savedTx.toObject(),
+              id: savedTx._id.toString(),
+              amountFormattedEn: formatCurrency(savedTx.amountMinor, 'en-IN', currency),
+              amountFormattedHi: formatCurrency(savedTx.amountMinor, 'hi-IN', currency),
+              balanceAfterFormattedEn: formatCurrency(targetMinor, 'en-IN', currency),
+              balanceAfterFormattedHi: formatCurrency(targetMinor, 'hi-IN', currency)
+            }
+          }
+        });
+      }
+    } catch (opErr) {
+      if (useTransaction && session) {
+        await session.abortTransaction().catch(() => {});
+      }
+      throw opErr;
+    } finally {
+      if (session) {
+        session.endSession().catch(() => {});
+      }
+    }
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
-  addTransaction
+  addTransaction,
+  correctCustomerBalance
 };

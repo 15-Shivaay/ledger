@@ -110,6 +110,13 @@ export const api = {
       body: JSON.stringify(txData)
     }),
 
+  // Correct / Update Due Amount
+  correctCustomerBalance: (phone, data) =>
+    fetchWithAuth(`/api/customers/${encodeURIComponent(phone)}/correct-balance`, {
+      method: 'POST',
+      body: JSON.stringify(data)
+    }),
+
   // Settings
   getSettings: () => fetchWithAuth('/api/settings'),
 

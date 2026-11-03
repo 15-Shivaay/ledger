@@ -11,7 +11,8 @@ vi.mock('../src/services/api', () => ({
     getCallList: vi.fn(),
     getCustomer: vi.fn(),
     updateCustomerRemark: vi.fn(),
-    setCallQueueDay: vi.fn().mockResolvedValue({ success: true, day: 1 })
+    setCallQueueDay: vi.fn().mockResolvedValue({ success: true, day: 1 }),
+    correctCustomerBalance: vi.fn().mockResolvedValue({ success: true, accountStatus: 'active' })
   }
 }));
 
@@ -270,5 +271,61 @@ describe('CallQueuePage - Print / Download PDF Feature', () => {
     });
     expect(api.setCallQueueDay).toHaveBeenCalledWith(2);
     expect(api.getCallList).toHaveBeenCalledWith(2, 50);
+  });
+
+  it('should open Correct Due Amount modal and submit corrected balance', async () => {
+    api.correctCustomerBalance.mockResolvedValue({
+      success: true,
+      accountStatus: 'active',
+      data: {
+        customer: {
+          balanceFormattedEn: '₹1,200.00',
+          balanceFormattedHi: '₹१,२००.००'
+        }
+      }
+    });
+
+    render(
+      <LanguageProvider>
+        <CallQueuePage
+          onBackToLedger={vi.fn()}
+          onOpenSettings={vi.fn()}
+          onOpenBackup={vi.fn()}
+        />
+      </LanguageProvider>
+    );
+
+    // Wait for customer to render
+    await waitFor(() => {
+      expect(screen.getByText('Ramesh Sharma')).toBeInTheDocument();
+    });
+
+    // Find and click the Correct Due Amount button (aria-label "Correct / adjust due amount")
+    const correctButtons = screen.getAllByRole('button', { name: /correct \/ adjust due amount/i });
+    expect(correctButtons.length).toBeGreaterThanOrEqual(1);
+    fireEvent.click(correctButtons[0]);
+
+    // Verify modal is open
+    expect(screen.getByText(/correct \/ update due amount/i)).toBeInTheDocument();
+    expect(screen.getAllByText('Ramesh Sharma').length).toBeGreaterThanOrEqual(2);
+
+    // Change amount to 1200
+    const amountInput = screen.getByLabelText(/actual correct due amount/i);
+    fireEvent.change(amountInput, { target: { value: '1200' } });
+
+    // Submit form
+    const saveButton = screen.getByRole('button', { name: /save corrected amount/i });
+    fireEvent.click(saveButton);
+
+    // Verify API was called
+    await waitFor(() => {
+      expect(api.correctCustomerBalance).toHaveBeenCalledWith(
+        '+919876543210',
+        expect.objectContaining({
+          newAmount: 1200,
+          newAmountMinor: 120000
+        })
+      );
+    });
   });
 });

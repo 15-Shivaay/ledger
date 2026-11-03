@@ -8,6 +8,7 @@ import TransactionModal from '../components/TransactionModal';
 import CustomerLedgerModal from '../components/CustomerLedgerModal';
 import SettingsModal from '../components/SettingsModal';
 import BackupModal from '../components/BackupModal';
+import CorrectAmountModal from '../components/CorrectAmountModal';
 import Toast from '../components/Toast';
 import { formatCurrencyMinor, formatDate } from '../utils/formatters';
 import {
@@ -27,7 +28,8 @@ import {
   Inbox,
   Database,
   PhoneCall,
-  ArrowRight
+  ArrowRight,
+  Scale
 } from 'lucide-react';
 
 export default function DashboardPage({ onToggleView, onNavigateToCall, currentView = 'ledger' }) {
@@ -50,6 +52,7 @@ export default function DashboardPage({ onToggleView, onNavigateToCall, currentV
   const [isAddCustomerOpen, setIsAddCustomerOpen] = useState(false);
   const [editingCustomer, setEditingCustomer] = useState(null);
   const [activeTransactionCustomer, setActiveTransactionCustomer] = useState(null);
+  const [activeCorrectCustomer, setActiveCorrectCustomer] = useState(null);
   const [transactionType, setTransactionType] = useState('credit'); // 'credit' | 'debit'
   const [ledgerCustomerData, setLedgerCustomerData] = useState(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
@@ -166,6 +169,43 @@ export default function DashboardPage({ onToggleView, onNavigateToCall, currentV
     }
 
     // Refresh metrics and customer table
+    fetchDashboard();
+    fetchCustomers();
+  };
+
+  // Handle Correct Due Amount
+  const handleCorrectBalance = async (correctionData) => {
+    if (!activeCorrectCustomer) return;
+    const res = await api.correctCustomerBalance(activeCorrectCustomer.phoneNormalized, {
+      newAmount: correctionData.newAmount,
+      newAmountMinor: correctionData.newAmountMinor,
+      date: correctionData.date,
+      notes: correctionData.notes
+    });
+
+    if (res.accountStatus === 'deleted') {
+      setToast({
+        type: 'warning',
+        title: t('notifications.success'),
+        message: language === 'hi' ? res.messageHi : res.messageEn || t('notifications.balanceCorrectedZeroDeleted')
+      });
+    } else if (res.accountStatus === 'archived') {
+      setToast({
+        type: 'info',
+        title: t('notifications.success'),
+        message: language === 'hi' ? res.messageHi : res.messageEn || t('notifications.balanceCorrectedZeroArchived')
+      });
+    } else {
+      const amountStr = language === 'hi'
+        ? res.data?.customer?.balanceFormattedHi || formatCurrencyMinor(correctionData.newAmountMinor, 'hi')
+        : res.data?.customer?.balanceFormattedEn || formatCurrencyMinor(correctionData.newAmountMinor, 'en');
+      setToast({
+        type: 'success',
+        title: t('notifications.success'),
+        message: language === 'hi' ? res.messageHi : res.messageEn || t('notifications.balanceCorrected', { amount: amountStr })
+      });
+    }
+
     fetchDashboard();
     fetchCustomers();
   };
@@ -522,6 +562,18 @@ export default function DashboardPage({ onToggleView, onNavigateToCall, currentV
                               <span className="hidden lg:inline">{t('customers.debitBtn')}</span>
                             </button>
 
+                            {/* Correct Due Amount */}
+                            <button
+                              type="button"
+                              onClick={() => setActiveCorrectCustomer(c)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-indigo-700 bg-indigo-50 hover:bg-indigo-100 border border-indigo-200 rounded-lg transition-colors cursor-pointer"
+                              title={t('customers.correctDueTooltip')}
+                              aria-label={t('customers.correctDueTooltip')}
+                            >
+                              <Scale className="w-3.5 h-3.5" />
+                              <span className="hidden xl:inline">{t('customers.correctBtn')}</span>
+                            </button>
+
                             {/* View Ledger */}
                             <button
                               type="button"
@@ -617,6 +669,15 @@ export default function DashboardPage({ onToggleView, onNavigateToCall, currentV
         onSubmit={handleRecordTransaction}
         customer={activeTransactionCustomer}
         type={transactionType}
+        zeroBalanceAction={settings.zeroBalanceAction}
+      />
+
+      {/* Correct / Update Due Amount Modal */}
+      <CorrectAmountModal
+        isOpen={Boolean(activeCorrectCustomer)}
+        onClose={() => setActiveCorrectCustomer(null)}
+        onSubmit={handleCorrectBalance}
+        customer={activeCorrectCustomer}
         zeroBalanceAction={settings.zeroBalanceAction}
       />
 
