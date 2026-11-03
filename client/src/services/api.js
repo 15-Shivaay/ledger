@@ -66,8 +66,16 @@ export const api = {
   getCustomer: (phone) => fetchWithAuth(`/api/customers/${encodeURIComponent(phone)}`),
 
   // Call Queue & Circular Daily List
-  getCallList: (day = 1, limit = 50) =>
-    fetchWithAuth(`/api/customers/call-list?day=${day}&limit=${limit}`),
+  getCallList: (day, limit = 50) => {
+    const dayParam = day !== undefined && day !== null ? `day=${day}&` : '';
+    return fetchWithAuth(`/api/customers/call-list?${dayParam}limit=${limit}`);
+  },
+
+  setCallQueueDay: (day) =>
+    fetchWithAuth('/api/customers/call-list/day', {
+      method: 'POST',
+      body: JSON.stringify({ day })
+    }),
 
   // Update Customer Remark
   updateCustomerRemark: (phone, data) =>

@@ -39,7 +39,14 @@ export default function CallQueuePage({
 }) {
   const { language, t } = useLanguage();
 
-  const [day, setDay] = useState(1);
+  const [day, setDay] = useState(() => {
+    try {
+      const saved = localStorage.getItem('ledger_active_call_day');
+      return saved ? parseInt(saved, 10) || 1 : 1;
+    } catch {
+      return 1;
+    }
+  });
   const [customers, setCustomers] = useState([]);
   const [pagination, setPagination] = useState({
     day: 1,
@@ -72,7 +79,7 @@ export default function CallQueuePage({
   // Toast
   const [toast, setToast] = useState(null);
 
-  // Fetch 50 customers for current day
+  // Fetch 50 customers for specified day
   const fetchCallList = useCallback(async (targetDay) => {
     setLoading(true);
     try {
@@ -89,6 +96,9 @@ export default function CallQueuePage({
         setCustomers(list);
         setPagination(res.pagination);
         setDay(res.pagination.day);
+        try {
+          localStorage.setItem('ledger_active_call_day', res.pagination.day);
+        } catch {}
       }
     } catch (err) {
       console.error('Failed to fetch call list:', err);
@@ -103,14 +113,35 @@ export default function CallQueuePage({
 
   useEffect(() => {
     fetchCallList(day);
-  }, [day, fetchCallList]);
+  }, []);
 
-  // Handle Target Customer navigation from Dashboard
+  // Handle Next Day: update active day and load next 50 customers
+  const handleNextDay = async () => {
+    const next = pagination.nextDay;
+    setDay(next);
+    try {
+      localStorage.setItem('ledger_active_call_day', next);
+    } catch {}
+    api.setCallQueueDay(next).catch((e) => console.warn('Could not persist day on server:', e));
+    fetchCallList(next);
+  };
+
+  // Handle Previous Day: update active day and load previous 50 customers
+  const handlePrevDay = async () => {
+    const prev = pagination.prevDay;
+    setDay(prev);
+    try {
+      localStorage.setItem('ledger_active_call_day', prev);
+    } catch {}
+    api.setCallQueueDay(prev).catch((e) => console.warn('Could not persist day on server:', e));
+    fetchCallList(prev);
+  };
+
+  // Handle Target Customer navigation from Dashboard without resetting day
   useEffect(() => {
     if (targetCustomer) {
       const targetId = targetCustomer.id || targetCustomer._id;
       setHighlightedId(targetId);
-      setDay(1);
 
       // Optimistically add to customers if not present
       setCustomers((prev) => {
@@ -361,9 +392,9 @@ export default function CallQueuePage({
             {/* Previous Day Button */}
             <button
               type="button"
-              onClick={() => setDay(pagination.prevDay)}
+              onClick={handlePrevDay}
               disabled={loading || pagination.totalDays <= 1}
-              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-xl transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
               title={t('calls.prevDay')}
             >
               <ChevronLeft className="w-4 h-4" />
@@ -390,9 +421,9 @@ export default function CallQueuePage({
             {/* Next Day Button (Circular) */}
             <button
               type="button"
-              onClick={() => setDay(pagination.nextDay)}
+              onClick={handleNextDay}
               disabled={loading || pagination.totalDays <= 1}
-              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 rounded-xl shadow-xs transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 rounded-xl shadow-xs transition-colors disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
               title={t('calls.nextDay')}
             >
               <span>{t('calls.nextDay')}</span>

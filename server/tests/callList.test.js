@@ -85,5 +85,47 @@ describe('Daily Call Queue & Circular 50-Customer List', () => {
     expect(inDb.callHistory.length).toBe(1);
     expect(inDb.callHistory[0].remark).toBe('Called customer, promised to pay ₹150 tomorrow');
   });
+
+  it('should keep the call list of customers unchanged until Next Day is clicked, even when remarks are updated', async () => {
+    // Create customers
+    await Customer.create([
+      {
+        name: 'Fixed Cust 1',
+        phoneNormalized: '+919800000051',
+        phoneDisplay: '+91 98000 00051',
+        currentBalanceMinor: 10000
+      },
+      {
+        name: 'Fixed Cust 2',
+        phoneNormalized: '+919800000052',
+        phoneDisplay: '+91 98000 00052',
+        currentBalanceMinor: 20000
+      }
+    ]);
+
+    // Updating remarks for a customer must NOT change customer order or queue positions
+    await request(app)
+      .patch('/api/customers/+919800000051/remarks')
+      .set(adminHeaders)
+      .send({ remark: 'Called customer, confirmed balance' });
+
+    // Fetch Day 1 again - queue remains stable
+    const res = await request(app)
+      .get('/api/customers/call-list?day=1&limit=2')
+      .set(adminHeaders);
+
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.length).toBe(2);
+
+    // Update persistent call queue day
+    const setDayRes = await request(app)
+      .post('/api/customers/call-list/day')
+      .set(adminHeaders)
+      .send({ day: 2 });
+
+    expect(setDayRes.status).toBe(200);
+    expect(setDayRes.body.day).toBe(2);
+  });
 });
 

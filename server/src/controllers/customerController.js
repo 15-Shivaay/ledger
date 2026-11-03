@@ -352,11 +352,13 @@ async function updateCustomer(req, res, next) {
 /**
  * GET /api/customers/call-list
  * Returns a circular list of 50 customers per day,
- * ordered by last updated date (oldest first, newer customers at the last of list).
+ * ordered stably by creation date (oldest first, newer at the end).
+ * Stays unchanged until user advances to next day.
  */
 async function getCallList(req, res, next) {
   try {
-    const rawDay = parseInt(req.query.day, 10);
+    const activeSettingDay = await Setting.getSetting('currentCallQueueDay', 1);
+    const rawDay = req.query.day !== undefined ? parseInt(req.query.day, 10) : activeSettingDay;
     const day = isNaN(rawDay) || rawDay < 1 ? 1 : rawDay;
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 50));
 
@@ -378,19 +380,22 @@ async function getCallList(req, res, next) {
         data: [],
         pagination: {
           day: 1,
+          activeDay: activeSettingDay,
           totalDays: 1,
           totalCustomers: 0,
           limit,
           nextDay: 1,
           prevDay: 1,
-          isWrapped: false
+          isWrapped: false,
+          addedTodayCount: 0
         }
       });
     }
 
-    // Order customers with respect to last updated date (ascending: oldest updated first, newer at the last of list)
+    // Order customers by creation date ascending (oldest first, newly created at end)
+    // Stable ordering: saving remarks, calling, or transactions will NEVER shuffle the queue!
     const allCustomers = await Customer.find(query)
-      .sort({ updatedAt: 1, createdAt: 1 })
+      .sort({ createdAt: 1, _id: 1 })
       .lean();
 
     // Circular selection of 50 customers for currentDay
@@ -411,24 +416,16 @@ async function getCallList(req, res, next) {
       selected = [...head, ...tail];
     }
 
-    // Include customers added to today's call list (searched & added or called today)
+    // Include customers manually added to today's call list (searched from dashboard)
     const todayDateStr = req.query.date || new Date().toISOString().split('T')[0];
     let addedCustomers = [];
 
-    if (currentDay === 1 || req.query.includeAdded === 'true') {
-      const startOfToday = new Date();
-      startOfToday.setHours(0, 0, 0, 0);
-      const endOfToday = new Date();
-      endOfToday.setHours(23, 59, 59, 999);
-
+    if (currentDay === activeSettingDay || req.query.includeAdded === 'true') {
       const addedCustomersRaw = await Customer.find({
         isArchived: false,
-        $or: [
-          { addedToCallListDate: todayDateStr },
-          { lastCalledAt: { $gte: startOfToday, $lte: endOfToday } }
-        ]
+        addedToCallListDate: todayDateStr
       })
-        .sort({ lastCalledAt: -1, updatedAt: -1 })
+        .sort({ createdAt: 1 })
         .lean();
 
       const selectedIdSet = new Set(selected.map((c) => c._id.toString()));
@@ -459,6 +456,7 @@ async function getCallList(req, res, next) {
       data: enriched,
       pagination: {
         day: currentDay,
+        activeDay: activeSettingDay,
         requestedDay: day,
         totalDays,
         totalCustomers,
@@ -591,6 +589,24 @@ async function addToCallList(req, res, next) {
   }
 }
 
+/**
+ * POST /api/customers/call-list/day
+ * Update persistent active day for the daily call queue
+ */
+async function setCallQueueDay(req, res, next) {
+  try {
+    const rawDay = parseInt(req.body.day, 10);
+    const day = isNaN(rawDay) || rawDay < 1 ? 1 : rawDay;
+    await Setting.setSetting('currentCallQueueDay', day, 'Active day index for daily call queue');
+    res.json({
+      success: true,
+      day
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
   getCustomers,
   createCustomer,
@@ -598,6 +614,7 @@ module.exports = {
   updateCustomer,
   getCallList,
   updateCustomerRemark,
-  addToCallList
+  addToCallList,
+  setCallQueueDay
 };
 

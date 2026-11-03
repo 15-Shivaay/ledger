@@ -10,7 +10,8 @@ vi.mock('../src/services/api', () => ({
   api: {
     getCallList: vi.fn(),
     getCustomer: vi.fn(),
-    updateCustomerRemark: vi.fn()
+    updateCustomerRemark: vi.fn(),
+    setCallQueueDay: vi.fn().mockResolvedValue({ success: true, day: 1 })
   }
 }));
 
@@ -190,5 +191,84 @@ describe('CallQueuePage - Print / Download PDF Feature', () => {
     // Also verify original queued customers are still present in table
     expect(printTable.textContent).toContain('Ramesh Sharma');
     expect(printTable.textContent).toContain('Pooja Patel');
+  });
+
+  it('should update the call list of customers only when the Next Day button is clicked', async () => {
+    const day2Customers = [
+      {
+        id: 'cust-3',
+        _id: 'cust-3',
+        name: 'Vikas Gupta',
+        phoneNormalized: '+919876543212',
+        phoneDisplay: '+91 98765 43212',
+        address: 'Sector 18, Noida',
+        currentBalanceMinor: 310000,
+        balanceFormattedEn: '₹3,100.00',
+        balanceFormattedHi: '₹३,१००.००',
+        remarks: '',
+        queuePosition: 3
+      }
+    ];
+
+    api.getCallList.mockImplementation((targetDay) => {
+      if (targetDay === 2) {
+        return Promise.resolve({
+          success: true,
+          data: day2Customers,
+          pagination: {
+            day: 2,
+            totalDays: 2,
+            totalCustomers: 52,
+            limit: 50,
+            nextDay: 1,
+            prevDay: 1,
+            isWrapped: false
+          }
+        });
+      }
+      return Promise.resolve({
+        success: true,
+        data: mockCustomers,
+        pagination: {
+          day: 1,
+          totalDays: 2,
+          totalCustomers: 52,
+          limit: 50,
+          nextDay: 2,
+          prevDay: 1,
+          isWrapped: false
+        }
+      });
+    });
+
+    render(
+      <LanguageProvider>
+        <CallQueuePage
+          onBackToLedger={vi.fn()}
+          onOpenSettings={vi.fn()}
+          onOpenBackup={vi.fn()}
+        />
+      </LanguageProvider>
+    );
+
+    // Initial Day 1: Ramesh Sharma & Pooja Patel are visible
+    await waitFor(() => {
+      expect(screen.getByText('Ramesh Sharma')).toBeInTheDocument();
+      expect(screen.getByText('Pooja Patel')).toBeInTheDocument();
+    });
+
+    // Vikas Gupta from Day 2 is NOT present
+    expect(screen.queryByText('Vikas Gupta')).not.toBeInTheDocument();
+
+    // Click Next Day button
+    const nextDayButtons = screen.getAllByRole('button', { name: /next day/i });
+    fireEvent.click(nextDayButtons[0]);
+
+    // Now Day 2 is fetched and Vikas Gupta is displayed
+    await waitFor(() => {
+      expect(screen.getByText('Vikas Gupta')).toBeInTheDocument();
+    });
+    expect(api.setCallQueueDay).toHaveBeenCalledWith(2);
+    expect(api.getCallList).toHaveBeenCalledWith(2, 50);
   });
 });

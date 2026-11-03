@@ -7,7 +7,8 @@ const {
   updateCustomer,
   getCallList,
   updateCustomerRemark,
-  addToCallList
+  addToCallList,
+  setCallQueueDay
 } = require('../controllers/customerController');
 const { addTransaction } = require('../controllers/transactionController');
 const { requireAdminAuth } = require('../middleware/authMiddleware');
@@ -18,6 +19,7 @@ router.use(requireAdminAuth);
 
 // Call Queue & Circular Daily List (must be before /:phone)
 router.get('/call-list', getCallList);
+router.post('/call-list/day', setCallQueueDay);
 
 // Customer management
 router.get('/', getCustomers);
