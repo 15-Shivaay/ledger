@@ -90,18 +90,18 @@ export default function CallQueuePage({ onBackToLedger, onOpenSettings, onOpenBa
     fetchCallList(day);
   }, [day, fetchCallList]);
 
-  // Handle Copy Phone Number to Clipboard
+  // Handle Copy Phone Number to Clipboard (copies 10-digit number only, excluding +91)
   const handleCopyPhone = async (customer) => {
-    const rawPhone = customer.phoneNormalized || customer.phoneDisplay;
-    const displayPhone = customer.phoneDisplay || customer.phoneNormalized;
+    const rawDigits = (customer.phoneNormalized || customer.phoneDisplay || '').replace(/\D/g, '');
+    const tenDigitPhone = rawDigits.length >= 10 ? rawDigits.slice(-10) : rawDigits;
 
     try {
       if (navigator.clipboard && navigator.clipboard.writeText) {
-        await navigator.clipboard.writeText(rawPhone);
+        await navigator.clipboard.writeText(tenDigitPhone);
       } else {
         // Fallback for older browsers
         const textarea = document.createElement('textarea');
-        textarea.value = rawPhone;
+        textarea.value = tenDigitPhone;
         document.body.appendChild(textarea);
         textarea.select();
         document.execCommand('copy');
@@ -114,7 +114,7 @@ export default function CallQueuePage({ onBackToLedger, onOpenSettings, onOpenBa
       setToast({
         type: 'success',
         title: t('calls.copied'),
-        message: t('calls.phoneCopied', { phone: displayPhone })
+        message: t('calls.phoneCopied', { phone: tenDigitPhone })
       });
     } catch (err) {
       console.error('Failed to copy phone:', err);

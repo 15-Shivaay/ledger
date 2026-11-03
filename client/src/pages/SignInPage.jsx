@@ -1,7 +1,8 @@
 import React from 'react';
 import { useLanguage } from '../context/LanguageContext';
 import { SignIn } from '@clerk/clerk-react';
-import { BookOpen, ShieldCheck } from 'lucide-react';
+import { ShieldCheck } from 'lucide-react';
+import Logo from '../components/Logo';
 
 export default function SignInPage() {
   const { language, setLanguage, t } = useLanguage();
@@ -39,9 +40,7 @@ export default function SignInPage() {
 
       <div className="max-w-md w-full space-y-6 text-center z-10 mb-2">
         {/* Logo and Brand */}
-        <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-emerald-600 text-white shadow-lg shadow-emerald-900/30 mx-auto">
-          <BookOpen className="w-7 h-7" />
-        </div>
+        <Logo className="w-16 h-16 shadow-xl shadow-emerald-950/40 rounded-2xl mx-auto" />
 
         <div>
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-950/80 text-emerald-400 border border-emerald-800/60 mb-2">

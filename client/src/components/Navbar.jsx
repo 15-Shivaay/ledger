@@ -1,7 +1,8 @@
 import React from 'react';
 import { useLanguage } from '../context/LanguageContext';
 import { UserButton } from '@clerk/clerk-react';
-import { BookOpen, Globe, Settings as SettingsIcon, ShieldCheck, Database, PhoneCall, LayoutDashboard } from 'lucide-react';
+import { Globe, Settings as SettingsIcon, ShieldCheck, Database, PhoneCall, LayoutDashboard } from 'lucide-react';
+import Logo from './Logo';
 
 export default function Navbar({ onOpenSettings, onOpenBackup, currentView = 'ledger', onToggleView }) {
   const { language, setLanguage, t } = useLanguage();
@@ -12,9 +13,7 @@ export default function Navbar({ onOpenSettings, onOpenBackup, currentView = 'le
         <div className="flex items-center justify-between h-16">
           {/* Brand Logo & Title */}
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-emerald-600 text-white flex items-center justify-center shadow-sm">
-              <BookOpen className="w-5 h-5" />
-            </div>
+            <Logo className="w-10 h-10 shadow-sm rounded-xl shrink-0" />
             <div>
               <div className="flex items-center gap-2">
                 <h1 className="text-lg font-bold text-slate-900 tracking-tight leading-tight">
