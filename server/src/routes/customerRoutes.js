@@ -6,7 +6,8 @@ const {
   getCustomerByPhone,
   updateCustomer,
   getCallList,
-  updateCustomerRemark
+  updateCustomerRemark,
+  addToCallList
 } = require('../controllers/customerController');
 const { addTransaction } = require('../controllers/transactionController');
 const { requireAdminAuth } = require('../middleware/authMiddleware');
@@ -24,6 +25,7 @@ router.post('/', transactionLimiter, createCustomer);
 router.get('/:phone', getCustomerByPhone);
 router.patch('/:phone', updateCustomer);
 router.patch('/:phone/remarks', updateCustomerRemark);
+router.post('/:phone/add-to-call-list', addToCallList);
 
 // Account transactions
 router.post('/:phone/transactions', transactionLimiter, addTransaction);

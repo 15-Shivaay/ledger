@@ -15,6 +15,7 @@ export default function App() {
   const { t } = useLanguage();
 
   const [currentView, setCurrentView] = useState('ledger'); // 'ledger' | 'calls'
+  const [targetCustomer, setTargetCustomer] = useState(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isBackupOpen, setIsBackupOpen] = useState(false);
   const [settings, setSettings] = useState({ zeroBalanceAction: 'delete', currency: 'INR' });
@@ -67,11 +68,17 @@ export default function App() {
           onBackToLedger={() => setCurrentView('ledger')}
           onOpenSettings={() => setIsSettingsOpen(true)}
           onOpenBackup={() => setIsBackupOpen(true)}
+          targetCustomer={targetCustomer}
+          onClearTargetCustomer={() => setTargetCustomer(null)}
         />
       ) : (
         <DashboardPage
           currentView={currentView}
           onToggleView={setCurrentView}
+          onNavigateToCall={(customer) => {
+            setTargetCustomer(customer);
+            setCurrentView('calls');
+          }}
         />
       )}
 

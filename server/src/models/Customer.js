@@ -57,6 +57,12 @@ const customerSchema = new mongoose.Schema(
       default: null,
       index: true
     },
+    // Date string (YYYY-MM-DD) indicating when this customer was added to daily call list
+    addedToCallListDate: {
+      type: String,
+      default: null,
+      index: true
+    },
     // Call log history
     callHistory: [
       {
@@ -84,6 +90,7 @@ customerSchema.index({ isArchived: 1, name: 1 });
 customerSchema.index({ isArchived: 1, address: 1 });
 customerSchema.index({ isArchived: 1, lastActivityAt: -1 });
 customerSchema.index({ isArchived: 1, updatedAt: 1 });
+customerSchema.index({ isArchived: 1, addedToCallListDate: 1 });
 
 const Customer = mongoose.model('Customer', customerSchema);
 

@@ -26,10 +26,11 @@ import {
   ChevronRight,
   Inbox,
   Database,
-  PhoneCall
+  PhoneCall,
+  ArrowRight
 } from 'lucide-react';
 
-export default function DashboardPage({ onToggleView, currentView = 'ledger' }) {
+export default function DashboardPage({ onToggleView, onNavigateToCall, currentView = 'ledger' }) {
   const { language, t } = useLanguage();
 
   // State
@@ -181,6 +182,24 @@ export default function DashboardPage({ onToggleView, currentView = 'ledger' }) 
         type: 'error',
         message: err.data?.messageEn || t('notifications.error')
       });
+    }
+  };
+
+  // Handle Go to Call Card: automatically add to today's call list & direct to card
+  const handleGoToCallCard = async (customer) => {
+    try {
+      // Automatically add customer to today's daily call list on server
+      api.addToCallList(customer.phoneNormalized).catch((err) => {
+        console.warn('Could not add customer to daily call list:', err);
+      });
+
+      if (onNavigateToCall) {
+        onNavigateToCall(customer);
+      } else if (onToggleView) {
+        onToggleView('calls');
+      }
+    } catch (err) {
+      console.error('Failed to navigate to call card:', err);
     }
   };
 
@@ -462,6 +481,18 @@ export default function DashboardPage({ onToggleView, currentView = 'ledger' }) 
                         {/* Actions */}
                         <td className="px-6 py-4 text-right whitespace-nowrap">
                           <div className="flex items-center justify-end gap-1.5">
+                            {/* Go to Call Card (Arrow Button) */}
+                            <button
+                              type="button"
+                              onClick={() => handleGoToCallCard(c)}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-lg transition-colors group shadow-2xs"
+                              title={t('customers.goToCallCard')}
+                              aria-label={t('customers.goToCallCard')}
+                            >
+                              <ArrowRight className="w-3.5 h-3.5 group-hover:translate-x-0.5 transition-transform" />
+                              <span className="hidden xl:inline">{t('customers.callCardBtn')}</span>
+                            </button>
+
                             {/* Add Credit */}
                             <button
                               type="button"

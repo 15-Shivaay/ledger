@@ -76,6 +76,13 @@ export const api = {
       body: JSON.stringify(data)
     }),
 
+  // Add customer to today's call list
+  addToCallList: (phone, data = {}) =>
+    fetchWithAuth(`/api/customers/${encodeURIComponent(phone)}/add-to-call-list`, {
+      method: 'POST',
+      body: JSON.stringify(data)
+    }),
+
   createCustomer: (customerData) =>
     fetchWithAuth('/api/customers', {
       method: 'POST',

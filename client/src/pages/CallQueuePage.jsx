@@ -30,7 +30,13 @@ import {
   X
 } from 'lucide-react';
 
-export default function CallQueuePage({ onBackToLedger, onOpenSettings, onOpenBackup }) {
+export default function CallQueuePage({
+  onBackToLedger,
+  onOpenSettings,
+  onOpenBackup,
+  targetCustomer,
+  onClearTargetCustomer
+}) {
   const { language, t } = useLanguage();
 
   const [day, setDay] = useState(1);
@@ -45,6 +51,7 @@ export default function CallQueuePage({ onBackToLedger, onOpenSettings, onOpenBa
     isWrapped: false
   });
   const [loading, setLoading] = useState(true);
+  const [highlightedId, setHighlightedId] = useState(null);
 
   // Copy tracking: customer id -> boolean
   const [copiedId, setCopiedId] = useState(null);
@@ -71,7 +78,15 @@ export default function CallQueuePage({ onBackToLedger, onOpenSettings, onOpenBa
     try {
       const res = await api.getCallList(targetDay, 50);
       if (res.success) {
-        setCustomers(res.data);
+        let list = res.data;
+        if (targetCustomer) {
+          const targetId = targetCustomer.id || targetCustomer._id;
+          const exists = list.some((c) => (c.id || c._id) === targetId);
+          if (!exists) {
+            list = [{ ...targetCustomer, isManuallyAdded: true, queuePosition: '+1' }, ...list];
+          }
+        }
+        setCustomers(list);
         setPagination(res.pagination);
         setDay(res.pagination.day);
       }
@@ -84,11 +99,45 @@ export default function CallQueuePage({ onBackToLedger, onOpenSettings, onOpenBa
     } finally {
       setLoading(false);
     }
-  }, [t]);
+  }, [t, targetCustomer]);
 
   useEffect(() => {
     fetchCallList(day);
   }, [day, fetchCallList]);
+
+  // Handle Target Customer navigation from Dashboard
+  useEffect(() => {
+    if (targetCustomer) {
+      const targetId = targetCustomer.id || targetCustomer._id;
+      setHighlightedId(targetId);
+      setDay(1);
+
+      // Optimistically add to customers if not present
+      setCustomers((prev) => {
+        const exists = prev.some((c) => (c.id || c._id) === targetId);
+        if (exists) return prev;
+        return [{ ...targetCustomer, isManuallyAdded: true, queuePosition: '+1' }, ...prev];
+      });
+
+      // Smoothly scroll to the target customer's card
+      const scrollTimer = setTimeout(() => {
+        const el = document.getElementById(`customer-card-${targetId}`);
+        if (el) {
+          el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 350);
+
+      const highlightTimer = setTimeout(() => {
+        setHighlightedId(null);
+        if (onClearTargetCustomer) onClearTargetCustomer();
+      }, 4000);
+
+      return () => {
+        clearTimeout(scrollTimer);
+        clearTimeout(highlightTimer);
+      };
+    }
+  }, [targetCustomer, onClearTargetCustomer]);
 
   // Handle Copy Phone Number to Clipboard (copies 10-digit number only, excluding +91)
   const handleCopyPhone = async (customer) => {
@@ -108,7 +157,7 @@ export default function CallQueuePage({ onBackToLedger, onOpenSettings, onOpenBa
         textarea.remove();
       }
 
-      setCopiedId(customer.id);
+      setCopiedId(customer.id || customer._id);
       setTimeout(() => setCopiedId(null), 2500);
 
       setToast({
@@ -123,13 +172,14 @@ export default function CallQueuePage({ onBackToLedger, onOpenSettings, onOpenBa
 
   // Start editing remark
   const handleStartEditRemark = (customer) => {
-    setEditingRemarkId(customer.id);
+    setEditingRemarkId(customer.id || customer._id);
     setRemarkText(customer.remarks || '');
   };
 
   // Save remark to database
   const handleSaveRemark = async (customer) => {
-    setSavingRemarkId(customer.id);
+    const custId = customer.id || customer._id;
+    setSavingRemarkId(custId);
     try {
       const res = await api.updateCustomerRemark(customer.phoneNormalized, {
         remark: remarkText.trim(),
@@ -140,7 +190,7 @@ export default function CallQueuePage({ onBackToLedger, onOpenSettings, onOpenBa
         // Update customer in local state
         setCustomers((prev) =>
           prev.map((c) =>
-            c.id === customer.id
+            (c.id || c._id) === custId || c.phoneNormalized === customer.phoneNormalized
               ? {
                   ...c,
                   remarks: remarkText.trim(),
@@ -393,27 +443,40 @@ export default function CallQueuePage({ onBackToLedger, onOpenSettings, onOpenBa
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {customers.map((c, idx) => {
-              const isCopied = copiedId === c.id;
-              const isEditingRemark = editingRemarkId === c.id;
-              const isSaving = savingRemarkId === c.id;
+              const custId = c.id || c._id;
+              const isCopied = copiedId === custId;
+              const isEditingRemark = editingRemarkId === custId;
+              const isSaving = savingRemarkId === custId;
+              const isHighlighted = highlightedId === custId;
               const balanceFormatted =
                 language === 'hi' ? c.balanceFormattedHi : c.balanceFormattedEn;
 
               return (
                 <div
+                  id={`customer-card-${c.id || c._id}`}
                   key={c.id || c._id}
-                  className="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs hover:shadow-md transition-all flex flex-col justify-between gap-4"
+                  className={`bg-white rounded-2xl border p-5 shadow-xs hover:shadow-md transition-all flex flex-col justify-between gap-4 ${
+                    isHighlighted
+                      ? 'border-emerald-500 ring-4 ring-emerald-500/25 bg-emerald-50/20 shadow-md'
+                      : 'border-slate-200'
+                  }`}
                 >
                   {/* Card Header: Queue Position, Name, Balance */}
                   <div>
                     <div className="flex items-start justify-between gap-3 mb-2">
-                      <div className="flex items-center gap-2">
-                        <span className="w-6 h-6 rounded-lg bg-slate-100 text-slate-600 font-mono text-xs font-bold flex items-center justify-center">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="w-6 h-6 rounded-lg bg-slate-100 text-slate-600 font-mono text-xs font-bold flex items-center justify-center shrink-0">
                           {c.queuePosition || idx + 1}
                         </span>
                         <h3 className="text-base font-bold text-slate-900">
                           {c.name}
                         </h3>
+                        {c.isManuallyAdded && (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                            <CheckCircle2 className="w-3 h-3 text-emerald-600" />
+                            {t('calls.addedTodayBadge')}
+                          </span>
+                        )}
                       </div>
 
                       {/* Outstanding Balance Due */}

@@ -129,4 +129,66 @@ describe('CallQueuePage - Print / Download PDF Feature', () => {
     expect(printTable.textContent).toContain('₹2,750.50');
     expect(printTable.textContent).toContain('Send reminder SMS on 5th');
   });
+
+  it('should automatically include searched and directed customer in today call list and printable PDF', async () => {
+    const searchedCustomer = {
+      id: 'cust-searched',
+      _id: 'cust-searched',
+      name: 'Sunil Verma',
+      phoneNormalized: '+919876543299',
+      phoneDisplay: '+91 98765 43299',
+      address: 'Shop 88, Cloth Market, Surat',
+      currentBalanceMinor: 450000,
+      balanceFormattedEn: '₹4,500.00',
+      balanceFormattedHi: '₹४,५००.००',
+      remarks: 'Called on phone, promised to clear balance by Saturday',
+      isManuallyAdded: true,
+      queuePosition: '+1'
+    };
+
+    render(
+      <LanguageProvider>
+        <CallQueuePage
+          onBackToLedger={vi.fn()}
+          onOpenSettings={vi.fn()}
+          onOpenBackup={vi.fn()}
+          targetCustomer={searchedCustomer}
+        />
+      </LanguageProvider>
+    );
+
+    // Verify searched customer card is rendered at top with Added Today badge
+    await waitFor(() => {
+      expect(screen.getAllByText('Sunil Verma').length).toBeGreaterThanOrEqual(1);
+      expect(screen.getByText('Added Today')).toBeInTheDocument();
+    });
+
+    // Check that all call card functionalities are present on searched customer's card:
+    // Call button, copy phone button, remarks, ledger
+    const callLinks = screen.getAllByRole('link', { name: /call/i });
+    expect(callLinks[0]).toHaveAttribute('href', 'tel:+919876543299');
+    expect(screen.getByText(/Sunil Verma/)).toBeInTheDocument();
+    expect(screen.getByText(/₹4,500.00/)).toBeInTheDocument();
+
+    // Click Print / Download PDF
+    const printButtons = screen.getAllByRole('button', { name: /print \/ download pdf/i });
+    fireEvent.click(printButtons[0]);
+
+    // Check that Sunil Verma and his remarks are included in printable PDF table alongside queued customers
+    const printTable = await waitFor(() => {
+      const el = document.getElementById('call-list-print-table');
+      expect(el).toBeInTheDocument();
+      return el;
+    });
+
+    expect(printTable.textContent).toContain('Sunil Verma');
+    expect(printTable.textContent).toContain('+91 98765 43299');
+    expect(printTable.textContent).toContain('Shop 88, Cloth Market, Surat');
+    expect(printTable.textContent).toContain('₹4,500.00');
+    expect(printTable.textContent).toContain('Called on phone, promised to clear balance by Saturday');
+
+    // Also verify original queued customers are still present in table
+    expect(printTable.textContent).toContain('Ramesh Sharma');
+    expect(printTable.textContent).toContain('Pooja Patel');
+  });
 });

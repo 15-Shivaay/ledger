@@ -411,12 +411,45 @@ async function getCallList(req, res, next) {
       selected = [...head, ...tail];
     }
 
+    // Include customers added to today's call list (searched & added or called today)
+    const todayDateStr = req.query.date || new Date().toISOString().split('T')[0];
+    let addedCustomers = [];
+
+    if (currentDay === 1 || req.query.includeAdded === 'true') {
+      const startOfToday = new Date();
+      startOfToday.setHours(0, 0, 0, 0);
+      const endOfToday = new Date();
+      endOfToday.setHours(23, 59, 59, 999);
+
+      const addedCustomersRaw = await Customer.find({
+        isArchived: false,
+        $or: [
+          { addedToCallListDate: todayDateStr },
+          { lastCalledAt: { $gte: startOfToday, $lte: endOfToday } }
+        ]
+      })
+        .sort({ lastCalledAt: -1, updatedAt: -1 })
+        .lean();
+
+      const selectedIdSet = new Set(selected.map((c) => c._id.toString()));
+      addedCustomers = addedCustomersRaw
+        .filter((c) => !selectedIdSet.has(c._id.toString()))
+        .map((c) => ({
+          ...c,
+          isManuallyAdded: true
+        }));
+    }
+
+    const combined = [...addedCustomers, ...selected];
     const currency = await Setting.getSetting('currency', 'INR');
 
-    const enriched = selected.map((c, index) => ({
+    const enriched = combined.map((c, index) => ({
       ...c,
       id: c._id.toString(),
-      queuePosition: ((startIndex + index) % totalCustomers) + 1,
+      isManuallyAdded: !!c.isManuallyAdded,
+      queuePosition: c.isManuallyAdded
+        ? `+${index + 1}`
+        : ((startIndex + (index - addedCustomers.length)) % totalCustomers) + 1,
       balanceFormattedEn: formatCurrency(c.currentBalanceMinor, 'en-IN', currency),
       balanceFormattedHi: formatCurrency(c.currentBalanceMinor, 'hi-IN', currency)
     }));
@@ -432,7 +465,8 @@ async function getCallList(req, res, next) {
         limit,
         nextDay,
         prevDay,
-        isWrapped
+        isWrapped,
+        addedTodayCount: addedCustomers.length
       }
     });
   } catch (error) {
@@ -466,10 +500,12 @@ async function updateCustomerRemark(req, res, next) {
     }
 
     const { remark = '', markCalled = true } = req.body;
+    const todayDateStr = req.body.date || new Date().toISOString().split('T')[0];
 
     customer.remarks = typeof remark === 'string' ? remark.trim() : '';
     if (markCalled) {
       customer.lastCalledAt = new Date();
+      customer.addedToCallListDate = todayDateStr;
     }
 
     if (remark && remark.trim()) {
@@ -507,12 +543,61 @@ async function updateCustomerRemark(req, res, next) {
   }
 }
 
+/**
+ * POST /api/customers/:phone/add-to-call-list
+ * Add a customer to today's daily call list (for searched & called customers)
+ */
+async function addToCallList(req, res, next) {
+  try {
+    const rawPhone = decodeURIComponent(req.params.phone);
+    const phoneValidation = normalizePhone(rawPhone);
+    const lookupPhone = phoneValidation.isValid ? phoneValidation.normalized : rawPhone;
+
+    const customer = await Customer.findOne({
+      $or: [{ phoneNormalized: lookupPhone }, { phoneNormalized: rawPhone }]
+    });
+
+    if (!customer) {
+      const msg = getBilingualMessage('CUSTOMER_NOT_FOUND');
+      return res.status(404).json({
+        success: false,
+        error: 'Not Found',
+        code: msg.code,
+        messageEn: msg.messageEn,
+        messageHi: msg.messageHi
+      });
+    }
+
+    const todayDateStr = req.body.date || new Date().toISOString().split('T')[0];
+    customer.addedToCallListDate = todayDateStr;
+    await customer.save();
+
+    const currency = await Setting.getSetting('currency', 'INR');
+
+    res.json({
+      success: true,
+      messageEn: "Customer added to today's call list successfully.",
+      messageHi: 'ग्राहक को आज की कॉल सूची में सफलतापूर्वक जोड़ दिया गया।',
+      data: {
+        ...customer.toObject(),
+        id: customer._id.toString(),
+        isManuallyAdded: true,
+        balanceFormattedEn: formatCurrency(customer.currentBalanceMinor, 'en-IN', currency),
+        balanceFormattedHi: formatCurrency(customer.currentBalanceMinor, 'hi-IN', currency)
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
 module.exports = {
   getCustomers,
   createCustomer,
   getCustomerByPhone,
   updateCustomer,
   getCallList,
-  updateCustomerRemark
+  updateCustomerRemark,
+  addToCallList
 };
 
