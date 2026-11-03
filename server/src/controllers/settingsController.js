@@ -1,4 +1,5 @@
 const Setting = require('../models/Setting');
+const { getBusinessDateString } = require('../utils/businessDate');
 
 /**
  * GET /api/settings
@@ -6,16 +7,19 @@ const Setting = require('../models/Setting');
  */
 async function getSettings(req, res, next) {
   try {
+    const todayBusinessDate = getBusinessDateString();
     const zeroBalanceAction = await Setting.getSetting('zeroBalanceAction', 'delete');
     const currency = await Setting.getSetting('currency', 'INR');
     const defaultCountryCode = await Setting.getSetting('defaultCountryCode', '+91');
+    const queueStartDate = await Setting.getSetting('queueStartDate', todayBusinessDate);
 
     res.json({
       success: true,
       data: {
         zeroBalanceAction, // 'delete' | 'archive'
         currency,          // 'INR'
-        defaultCountryCode // '+91'
+        defaultCountryCode, // '+91'
+        queueStartDate     // 'YYYY-MM-DD'
       }
     });
   } catch (error) {
@@ -29,7 +33,7 @@ async function getSettings(req, res, next) {
  */
 async function updateSettings(req, res, next) {
   try {
-    const { zeroBalanceAction, currency } = req.body;
+    const { zeroBalanceAction, currency, queueStartDate } = req.body;
 
     if (zeroBalanceAction !== undefined) {
       if (zeroBalanceAction !== 'delete' && zeroBalanceAction !== 'archive') {
@@ -59,8 +63,26 @@ async function updateSettings(req, res, next) {
       await Setting.setSetting('currency', currency.trim().toUpperCase(), 'Default currency code');
     }
 
+    if (queueStartDate !== undefined) {
+      if (typeof queueStartDate !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(queueStartDate.trim())) {
+        return res.status(400).json({
+          success: false,
+          error: 'Validation Error',
+          messageEn: 'queueStartDate must be in YYYY-MM-DD format',
+          messageHi: 'queueStartDate YYYY-MM-DD प्रारूप में होनी चाहिए'
+        });
+      }
+      await Setting.setSetting(
+        'queueStartDate',
+        queueStartDate.trim(),
+        'Start date (Day 1) for circular daily call queue'
+      );
+    }
+
     const currentZeroBalanceAction = await Setting.getSetting('zeroBalanceAction', 'delete');
     const currentCurrency = await Setting.getSetting('currency', 'INR');
+    const todayBusinessDate = getBusinessDateString();
+    const currentQueueStartDate = await Setting.getSetting('queueStartDate', todayBusinessDate);
 
     res.json({
       success: true,
@@ -68,7 +90,8 @@ async function updateSettings(req, res, next) {
       messageHi: 'सेटिंग्स सफलतापूर्वक अपडेट की गईं।',
       data: {
         zeroBalanceAction: currentZeroBalanceAction,
-        currency: currentCurrency
+        currency: currentCurrency,
+        queueStartDate: currentQueueStartDate
       }
     });
   } catch (error) {

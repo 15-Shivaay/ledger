@@ -41,17 +41,11 @@ export default function CallQueuePage({
 }) {
   const { language, t } = useLanguage();
 
-  const [day, setDay] = useState(() => {
-    try {
-      const saved = localStorage.getItem('ledger_active_call_day');
-      return saved ? parseInt(saved, 10) || 1 : 1;
-    } catch {
-      return 1;
-    }
-  });
+  const [day, setDay] = useState(null);
   const [customers, setCustomers] = useState([]);
   const [pagination, setPagination] = useState({
     day: 1,
+    activeDay: 1,
     totalDays: 1,
     totalCustomers: 0,
     limit: 50,
@@ -84,7 +78,7 @@ export default function CallQueuePage({
   // Toast
   const [toast, setToast] = useState(null);
 
-  // Fetch 50 customers for specified day
+  // Fetch 50 customers for specified day (or active day with 5:00 AM rollover if omitted)
   const fetchCallList = useCallback(async (targetDay) => {
     setLoading(true);
     try {
@@ -101,9 +95,6 @@ export default function CallQueuePage({
         setCustomers(list);
         setPagination(res.pagination);
         setDay(res.pagination.day);
-        try {
-          localStorage.setItem('ledger_active_call_day', res.pagination.day);
-        } catch {}
       }
     } catch (err) {
       console.error('Failed to fetch call list:', err);
@@ -117,16 +108,13 @@ export default function CallQueuePage({
   }, [t, targetCustomer]);
 
   useEffect(() => {
-    fetchCallList(day);
+    fetchCallList();
   }, []);
 
   // Handle Next Day: update active day and load next 50 customers
   const handleNextDay = async () => {
     const next = pagination.nextDay;
     setDay(next);
-    try {
-      localStorage.setItem('ledger_active_call_day', next);
-    } catch {}
     api.setCallQueueDay(next).catch((e) => console.warn('Could not persist day on server:', e));
     fetchCallList(next);
   };
@@ -135,11 +123,15 @@ export default function CallQueuePage({
   const handlePrevDay = async () => {
     const prev = pagination.prevDay;
     setDay(prev);
-    try {
-      localStorage.setItem('ledger_active_call_day', prev);
-    } catch {}
     api.setCallQueueDay(prev).catch((e) => console.warn('Could not persist day on server:', e));
     fetchCallList(prev);
+  };
+
+  // Jump back to Today's Active Day (5:00 AM IST Rollover)
+  const handleGoToToday = () => {
+    const today = pagination.activeDay || 1;
+    setDay(today);
+    fetchCallList(today);
   };
 
   // Handle Target Customer navigation from Dashboard without resetting day
@@ -433,7 +425,7 @@ export default function CallQueuePage({
           </div>
 
           {/* Day Navigation Controls */}
-          <div className="flex items-center gap-2.5 bg-white p-2 rounded-2xl border border-slate-200 shadow-xs">
+          <div className="flex flex-wrap items-center gap-2.5 bg-white p-2 rounded-2xl border border-slate-200 shadow-xs">
             {/* Previous Day Button */}
             <button
               type="button"
@@ -448,12 +440,19 @@ export default function CallQueuePage({
 
             {/* Current Day Badge */}
             <div className="px-3.5 py-1.5 bg-emerald-50 border border-emerald-200 rounded-xl text-center">
-              <span className="text-xs font-bold text-emerald-800 font-mono block">
-                {t('calls.dayBadge', {
-                  day: pagination.day,
-                  totalDays: pagination.totalDays
-                })}
-              </span>
+              <div className="flex items-center justify-center gap-1.5">
+                <span className="text-xs font-bold text-emerald-800 font-mono">
+                  {t('calls.dayBadge', {
+                    day: pagination.day,
+                    totalDays: pagination.totalDays
+                  })}
+                </span>
+                {pagination.day === pagination.activeDay && (
+                  <span className="inline-flex items-center px-1.5 py-0.5 text-[9px] font-bold rounded-full bg-emerald-200 text-emerald-900">
+                    {t('calls.todayActiveBadge')}
+                  </span>
+                )}
+              </div>
               <span className="text-[10px] text-emerald-600 font-medium block">
                 {t('calls.totalInQueue', {
                   count: customers.length,
@@ -474,17 +473,32 @@ export default function CallQueuePage({
               <span>{t('calls.nextDay')}</span>
               <ChevronRight className="w-4 h-4" />
             </button>
+
+            {/* If browsing another day, provide quick Go to Today button */}
+            {pagination.activeDay && pagination.day !== pagination.activeDay && (
+              <button
+                type="button"
+                onClick={handleGoToToday}
+                disabled={loading}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-bold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-300 rounded-xl transition-colors cursor-pointer"
+              >
+                <Calendar className="w-3.5 h-3.5 text-amber-600" />
+                <span>{t('calls.goToToday', { day: pagination.activeDay })}</span>
+              </button>
+            )}
           </div>
         </div>
 
         {/* Circular Queue Helper Info Banner */}
-        <div className="bg-emerald-50/60 border border-emerald-200/80 rounded-xl p-3.5 flex items-center justify-between text-xs text-emerald-900 gap-2">
+        <div className="bg-emerald-50/60 border border-emerald-200/80 rounded-xl p-3.5 flex flex-wrap items-center justify-between text-xs text-emerald-900 gap-2">
           <div className="flex items-center gap-2">
             <RotateCw className="w-4 h-4 text-emerald-600 shrink-0" />
             <span>{t('calls.circularNotice')}</span>
+            <span className="text-slate-300 hidden md:inline">|</span>
+            <span className="text-slate-500 hidden md:inline">{t('calls.rolloverNotice')}</span>
           </div>
           {pagination.isWrapped && (
-            <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-bold bg-amber-100 text-amber-800 border border-amber-200">
               <AlertCircle className="w-3 h-3" />
               {t('calls.wrappedBadge')}
             </span>

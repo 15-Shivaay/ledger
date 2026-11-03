@@ -6,12 +6,19 @@ export default function SettingsModal({ isOpen, onClose, currentSettings, onSave
   const { t } = useLanguage();
 
   const [zeroBalanceAction, setZeroBalanceAction] = useState('delete');
+  const [queueStartDate, setQueueStartDate] = useState('');
   const [loading, setLoading] = useState(false);
   const [savedSuccess, setSavedSuccess] = useState(false);
 
   useEffect(() => {
     if (currentSettings?.zeroBalanceAction) {
       setZeroBalanceAction(currentSettings.zeroBalanceAction);
+    }
+    if (currentSettings?.queueStartDate) {
+      setQueueStartDate(currentSettings.queueStartDate);
+    } else {
+      const today = new Date().toISOString().split('T')[0];
+      setQueueStartDate(today);
     }
     setSavedSuccess(false);
   }, [currentSettings, isOpen]);
@@ -23,7 +30,7 @@ export default function SettingsModal({ isOpen, onClose, currentSettings, onSave
     setLoading(true);
     setSavedSuccess(false);
     try {
-      await onSave({ zeroBalanceAction });
+      await onSave({ zeroBalanceAction, queueStartDate });
       setSavedSuccess(true);
       setTimeout(() => {
         onClose();
@@ -140,6 +147,23 @@ export default function SettingsModal({ isOpen, onClose, currentSettings, onSave
                 </div>
               </label>
             </div>
+          </div>
+
+          {/* Queue Start Date setting */}
+          <div>
+            <label className="block text-xs font-bold text-slate-800 uppercase tracking-wider mb-1">
+              {t('modals.settings.queueStartDate')}
+            </label>
+            <p className="text-xs text-slate-500 mb-2">
+              {t('modals.settings.queueStartDateHelp')}
+            </p>
+            <input
+              type="date"
+              required
+              value={queueStartDate}
+              onChange={(e) => setQueueStartDate(e.target.value)}
+              className="w-full px-3.5 py-2 text-sm bg-white border border-slate-300 rounded-lg text-slate-800 font-medium focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors"
+            />
           </div>
 
           {/* Currency setting */}

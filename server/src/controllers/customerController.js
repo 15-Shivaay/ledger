@@ -4,6 +4,7 @@ const Setting = require('../models/Setting');
 const { normalizePhone } = require('../utils/phoneNormalizer');
 const { getBilingualMessage } = require('../utils/i18nMessages');
 const { formatCurrency } = require('../utils/currency');
+const { getBusinessDateString, calculateQueueDay } = require('../utils/businessDate');
 
 /**
  * GET /api/customers
@@ -353,13 +354,12 @@ async function updateCustomer(req, res, next) {
  * GET /api/customers/call-list
  * Returns a circular list of 50 customers per day,
  * ordered stably by creation date (oldest first, newer at the end).
- * Stays unchanged until user advances to next day.
+ * Days start at queueStartDate (configured in Settings) and rollover daily at 5:00 AM IST.
  */
 async function getCallList(req, res, next) {
   try {
-    const activeSettingDay = await Setting.getSetting('currentCallQueueDay', 1);
-    const rawDay = req.query.day !== undefined ? parseInt(req.query.day, 10) : activeSettingDay;
-    const day = isNaN(rawDay) || rawDay < 1 ? 1 : rawDay;
+    const currentBusinessDateStr = getBusinessDateString();
+    const queueStartDate = await Setting.getSetting('queueStartDate', currentBusinessDateStr);
     const limit = Math.min(100, Math.max(1, parseInt(req.query.limit, 10) || 50));
 
     // Only active customers
@@ -369,8 +369,13 @@ async function getCallList(req, res, next) {
     const totalCustomers = await Customer.countDocuments(query);
     const totalDays = Math.ceil(totalCustomers / limit) || 1;
 
+    // Automated 5:00 AM daily rollover day calculation
+    const todayActiveDay = calculateQueueDay(queueStartDate, totalDays);
+    const rawDay = req.query.day !== undefined ? parseInt(req.query.day, 10) : todayActiveDay;
+    const requestedDay = isNaN(rawDay) || rawDay < 1 ? todayActiveDay : rawDay;
+
     // Circular day resolution
-    const currentDay = ((day - 1) % totalDays) + 1;
+    const currentDay = ((requestedDay - 1) % totalDays) + 1;
     const nextDay = (currentDay % totalDays) + 1;
     const prevDay = currentDay === 1 ? totalDays : currentDay - 1;
 
@@ -380,7 +385,9 @@ async function getCallList(req, res, next) {
         data: [],
         pagination: {
           day: 1,
-          activeDay: activeSettingDay,
+          activeDay: todayActiveDay,
+          queueStartDate,
+          currentBusinessDate: currentBusinessDateStr,
           totalDays: 1,
           totalCustomers: 0,
           limit,
@@ -417,13 +424,14 @@ async function getCallList(req, res, next) {
     }
 
     // Include customers manually added to today's call list (searched from dashboard)
-    const todayDateStr = req.query.date || new Date().toISOString().split('T')[0];
+    // Only customers added on CURRENT business date are included.
+    // Yesterday's added customers return to their natural circular position.
     let addedCustomers = [];
 
-    if (currentDay === activeSettingDay || req.query.includeAdded === 'true') {
+    if (currentDay === todayActiveDay || req.query.includeAdded === 'true') {
       const addedCustomersRaw = await Customer.find({
         isArchived: false,
-        addedToCallListDate: todayDateStr
+        addedToCallListDate: currentBusinessDateStr
       })
         .sort({ createdAt: 1 })
         .lean();
@@ -456,8 +464,10 @@ async function getCallList(req, res, next) {
       data: enriched,
       pagination: {
         day: currentDay,
-        activeDay: activeSettingDay,
-        requestedDay: day,
+        activeDay: todayActiveDay,
+        requestedDay,
+        queueStartDate,
+        currentBusinessDate: currentBusinessDateStr,
         totalDays,
         totalCustomers,
         limit,
@@ -498,7 +508,7 @@ async function updateCustomerRemark(req, res, next) {
     }
 
     const { remark = '', markCalled = true } = req.body;
-    const todayDateStr = req.body.date || new Date().toISOString().split('T')[0];
+    const todayDateStr = req.body.date || getBusinessDateString();
 
     customer.remarks = typeof remark === 'string' ? remark.trim() : '';
     if (markCalled) {
@@ -566,7 +576,7 @@ async function addToCallList(req, res, next) {
       });
     }
 
-    const todayDateStr = req.body.date || new Date().toISOString().split('T')[0];
+    const todayDateStr = req.body.date || getBusinessDateString();
     customer.addedToCallListDate = todayDateStr;
     await customer.save();
 
