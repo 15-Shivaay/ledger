@@ -56,8 +56,9 @@ export default function CallQueuePage({
   const [loading, setLoading] = useState(true);
   const [highlightedId, setHighlightedId] = useState(null);
 
-  // Copy tracking: customer id -> boolean
-  const [copiedId, setCopiedId] = useState(null);
+  // Copy tracking: customer id -> boolean for phone and name
+  const [copiedPhoneId, setCopiedPhoneId] = useState(null);
+  const [copiedNameId, setCopiedNameId] = useState(null);
 
   // Remarks editing: customer id -> boolean
   const [editingRemarkId, setEditingRemarkId] = useState(null);
@@ -185,8 +186,8 @@ export default function CallQueuePage({
         textarea.remove();
       }
 
-      setCopiedId(customer.id || customer._id);
-      setTimeout(() => setCopiedId(null), 2500);
+      setCopiedPhoneId(customer.id || customer._id);
+      setTimeout(() => setCopiedPhoneId(null), 2500);
 
       setToast({
         type: 'success',
@@ -195,6 +196,37 @@ export default function CallQueuePage({
       });
     } catch (err) {
       console.error('Failed to copy phone:', err);
+    }
+  };
+
+  // Handle Copy Customer Name to Clipboard
+  const handleCopyName = async (customer) => {
+    const customerName = (customer.name || '').trim();
+    if (!customerName) return;
+
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(customerName);
+      } else {
+        // Fallback for older browsers
+        const textarea = document.createElement('textarea');
+        textarea.value = customerName;
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        textarea.remove();
+      }
+
+      setCopiedNameId(customer.id || customer._id);
+      setTimeout(() => setCopiedNameId(null), 2500);
+
+      setToast({
+        type: 'success',
+        title: t('calls.copied'),
+        message: t('calls.nameCopied', { name: customerName })
+      });
+    } catch (err) {
+      console.error('Failed to copy name:', err);
     }
   };
 
@@ -534,7 +566,9 @@ export default function CallQueuePage({
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {customers.map((c, idx) => {
               const custId = c.id || c._id;
-              const isCopied = copiedId === custId;
+              const isPhoneCopied = copiedPhoneId === custId;
+              const isNameCopied = copiedNameId === custId;
+              const isCopied = isPhoneCopied;
               const isEditingRemark = editingRemarkId === custId;
               const isSaving = savingRemarkId === custId;
               const isHighlighted = highlightedId === custId;
@@ -674,7 +708,7 @@ export default function CallQueuePage({
                     </div>
                   </div>
 
-                  {/* Actions Row: Direct Dial (Main) & Copy Phone (Icon) */}
+                  {/* Actions Row: Direct Dial (Main), Copy Phone, Copy Name, Ledger, Correct Due */}
                   <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
                     {/* Primary Button -> Now Direct Dials */}
                     <a
@@ -689,18 +723,37 @@ export default function CallQueuePage({
                     <button
                       type="button"
                       onClick={() => handleCopyPhone(c)}
-                      className={`p-2.5 rounded-xl transition-colors shrink-0 ${
-                        isCopied
+                      className={`p-2.5 rounded-xl transition-colors shrink-0 cursor-pointer ${
+                        isPhoneCopied
                           ? 'bg-emerald-100 text-emerald-800 ring-2 ring-emerald-500'
                           : 'text-slate-600 hover:text-emerald-700 bg-slate-100 hover:bg-slate-200'
                       }`}
-                      title={isCopied ? t('calls.copied') : t('calls.copyPhone')}
+                      title={isPhoneCopied ? t('calls.copied') : t('calls.copyPhone')}
                       aria-label={t('calls.copyPhone')}
                     >
-                      {isCopied ? (
+                      {isPhoneCopied ? (
                         <Check className="w-4 h-4 text-emerald-600" />
                       ) : (
                         <PhoneCall className="w-4 h-4" />
+                      )}
+                    </button>
+
+                    {/* Copy Customer Name Button */}
+                    <button
+                      type="button"
+                      onClick={() => handleCopyName(c)}
+                      className={`p-2.5 rounded-xl transition-colors shrink-0 cursor-pointer ${
+                        isNameCopied
+                          ? 'bg-emerald-100 text-emerald-800 ring-2 ring-emerald-500'
+                          : 'text-slate-600 hover:text-emerald-700 bg-slate-100 hover:bg-slate-200'
+                      }`}
+                      title={isNameCopied ? t('calls.copied') : t('calls.copyName')}
+                      aria-label={t('calls.copyName')}
+                    >
+                      {isNameCopied ? (
+                        <Check className="w-4 h-4 text-emerald-600" />
+                      ) : (
+                        <User className="w-4 h-4" />
                       )}
                     </button>
 

@@ -328,4 +328,52 @@ describe('CallQueuePage - Print / Download PDF Feature', () => {
       );
     });
   });
+
+  it('should copy customer name and phone to clipboard with toast notification', async () => {
+    const writeTextMock = vi.fn().mockResolvedValue(undefined);
+    Object.assign(navigator, {
+      clipboard: {
+        writeText: writeTextMock
+      }
+    });
+
+    render(
+      <LanguageProvider>
+        <CallQueuePage
+          onBackToLedger={vi.fn()}
+          onOpenSettings={vi.fn()}
+          onOpenBackup={vi.fn()}
+        />
+      </LanguageProvider>
+    );
+
+    await waitFor(() => {
+      expect(screen.getByText('Ramesh Sharma')).toBeInTheDocument();
+    });
+
+    // Find Copy Name buttons
+    const copyNameButtons = screen.getAllByRole('button', { name: /copy name/i });
+    expect(copyNameButtons.length).toBe(2);
+
+    // Click Copy Name for first customer
+    fireEvent.click(copyNameButtons[0]);
+    expect(writeTextMock).toHaveBeenCalledWith('Ramesh Sharma');
+
+    // Verify toast or copied state
+    await waitFor(() => {
+      expect(screen.getByText(/name copied to clipboard: ramesh sharma/i)).toBeInTheDocument();
+    });
+
+    // Find Copy Phone buttons
+    const copyPhoneButtons = screen.getAllByRole('button', { name: /copy phone number/i });
+    expect(copyPhoneButtons.length).toBe(2);
+
+    // Click Copy Phone for first customer (copies 10-digit phone)
+    fireEvent.click(copyPhoneButtons[0]);
+    expect(writeTextMock).toHaveBeenCalledWith('9876543210');
+
+    await waitFor(() => {
+      expect(screen.getByText(/phone number copied to clipboard: 9876543210/i)).toBeInTheDocument();
+    });
+  });
 });
